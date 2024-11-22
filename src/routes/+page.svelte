@@ -30,7 +30,7 @@
 	  flex: 1;
 	  height: 500px; /* Set a height for the map */
 	}
-  </style>
+  </style>asd
   
   <h1>Geospatial Visualization</h1>
   
