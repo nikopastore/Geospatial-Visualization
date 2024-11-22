@@ -11,23 +11,23 @@
 	  map = new mapboxgl.Map({
 		container: 'map',
 		style: 'mapbox://styles/mapbox/streets-v12',
-		center: [-71.0942, 42.3601], // Boston area
-		zoom: 12
+		center: [-117.1625, 32.715], // Centered on downtown San Diego
+		zoom: 12 // Zoom level to show downtown coastline through the 805
 	  });
   
-	  // Add Boston bike lanes
+	  // Example: Adding a data source for lanes (update to your real data if available)
 	  map.on('load', () => {
-		map.addSource('boston_bike_lanes', {
+		map.addSource('bike_lanes', {
 		  type: 'geojson',
-		  data: 'https://bostonopendata-boston.opendata.arcgis.com/datasets/boston::existing-bike-network-2022.geojson'
+		  data: 'https://example.com/san-diego-bike-lanes.geojson' // Replace with your dataset
 		});
   
 		map.addLayer({
-		  id: 'boston_bike_lanes',
+		  id: 'bike_lanes',
 		  type: 'line',
-		  source: 'boston_bike_lanes',
+		  source: 'bike_lanes',
 		  paint: {
-			'line-color': '#2ecc71',
+			'line-color': '#ff5722', // Orange color for lanes
 			'line-width': 3,
 			'line-opacity': 0.8
 		  }
@@ -38,19 +38,8 @@
   
   <style>
 	@import '$lib/global.css';
-  
-	h1 {
-	  font-size: 2rem;
-	  margin: 0.5rem 0;
-	}
-  
-	p {
-	  margin-bottom: 1rem;
-	}
   </style>
   
-  <h1>Geospatial Visualization</h1>
-  <p>Explore bike lane usage in the Boston area with an interactive map.</p>
-  
+  <h1>🚴 LaneWatchers</h1>
   <div id="map"></div>
   
