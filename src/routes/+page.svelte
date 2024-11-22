@@ -34,7 +34,7 @@
   
   <h1>Geospatial Visualization</h1>
   
-  <p>
+  <p>c
 	Welcome to Geospatial Visualization, an immersive and interactive map visualization of bike traffic in the Boston area during different times of the day.
   </p>
   
