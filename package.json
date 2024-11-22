@@ -1,0 +1,8 @@
+{
+  "devDependencies": {
+    "@sveltejs/adapter-static": "^3.0.6"
+  },
+  "dependencies": {
+    "mapbox-gl": "^3.8.0"
+  }
+}
