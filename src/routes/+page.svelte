@@ -1,5 +1,3 @@
-<!-- src/routes/+page.svelte -->
-
 <script>
 	// Import Mapbox GL JS
 	import mapboxgl from 'mapbox-gl';
@@ -27,8 +25,9 @@
   
 	/* Style for the map container */
 	#map {
-	  flex: 1;
-	  height: 500px; /* Set a height for the map */
+	width: 100%; /* Full width of the parent container */
+    height: 500px; /* Height of the map */
+    border: 1px solid #ccc; /* Optional: Add a border for clarity */
 	}
   </style>
   
