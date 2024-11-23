@@ -44,68 +44,72 @@
 
 	// Filter trips by time range
 	function filterTripsByTime() {
-		if (timeFilter === -1) {
-			filteredTrips = trips;
-		} else {
-			const start = timeFilter - 60;
-			const end = timeFilter + 60;
+    if (timeFilter === -1) {
+        filteredTrips = trips;
+    } else {
+        const start = timeFilter - 60;
+        const end = timeFilter + 60;
 
-			filteredTrips = trips.filter((trip) => {
-				const startedMinutes = minutesSinceMidnight(trip.startedAt);
-				const endedMinutes = minutesSinceMidnight(trip.endedAt);
-				return (
-					(startedMinutes >= start && startedMinutes <= end) ||
-					(endedMinutes >= start && endedMinutes <= end)
-				);
-			});
-		}
-		console.log('Filtered Trips:', filteredTrips);
-		updateStationsOnMap();
-	}
+        filteredTrips = trips.filter((trip) => {
+            const startedMinutes = minutesSinceMidnight(trip.startedAt);
+            const endedMinutes = minutesSinceMidnight(trip.endedAt);
+            return (
+                (startedMinutes >= start && startedMinutes <= end) ||
+                (endedMinutes >= start && endedMinutes <= end)
+            );
+        });
+    }
+
+	console.log('Filtered Trips:', filteredTrips);
+    updateStationsOnMap(); // Update markers based on filtered data
+}
+
 
 	// Update station markers dynamically
 	function updateStationsOnMap() {
-		if (!map || !stations.length) return;
+    if (!map || !stations.length) return;
 
-		// Calculate traffic per station based on filtered trips
-		const trafficMap = new Map();
-		filteredTrips.forEach((trip) => {
-			if (!trafficMap.has(trip.startStationId))
-				trafficMap.set(trip.startStationId, { arrivals: 0, departures: 0 });
-			if (!trafficMap.has(trip.endStationId))
-				trafficMap.set(trip.endStationId, { arrivals: 0, departures: 0 });
+    const trafficMap = new Map();
+    filteredTrips.forEach((trip) => {
+        if (!trafficMap.has(trip.startStationId)) {
+            trafficMap.set(trip.startStationId, { arrivals: 0, departures: 0 });
+        }
+        if (!trafficMap.has(trip.endStationId)) {
+            trafficMap.set(trip.endStationId, { arrivals: 0, departures: 0 });
+        }
 
-			trafficMap.get(trip.startStationId).departures++;
-			trafficMap.get(trip.endStationId).arrivals++;
-		});
+        trafficMap.get(trip.startStationId).departures++;
+        trafficMap.get(trip.endStationId).arrivals++;
+    });
 
-		// Clear existing markers
-		document.querySelectorAll('.station-marker').forEach((el) => el.remove());
+    // Clear existing markers
+    document.querySelectorAll('.station-marker').forEach((el) => el.remove());
 
-		// Add station markers
-		stations.forEach((station) => {
-			const traffic = trafficMap.get(station.id) || { arrivals: 0, departures: 0 };
-			const totalTraffic = traffic.arrivals + traffic.departures;
+    // Add station markers dynamically
+    stations.forEach((station) => {
+        const traffic = trafficMap.get(station.id) || { arrivals: 0, departures: 0 };
+        const totalTraffic = traffic.arrivals + traffic.departures;
 
-			if (totalTraffic === 0) return; // Skip stations with no traffic
+        if (totalTraffic === 0) return; // Skip stations with no traffic
 
-			const markerSize = Math.max(2, Math.sqrt(totalTraffic) * 0.5); // Adjust marker size
+        const markerSize = Math.max(2, Math.sqrt(totalTraffic) * 0.5); // Adjust size dynamically
 
-			const markerElement = document.createElement('div');
-			markerElement.className = 'station-marker';
-			markerElement.style.width = `${markerSize}px`;
-			markerElement.style.height = `${markerSize}px`;
-			markerElement.style.backgroundColor = 'steelblue';
-			markerElement.style.border = '1px solid white';
-			markerElement.style.borderRadius = '50%';
-			markerElement.style.opacity = '0.6';
-			markerElement.title = `${station.name}\nArrivals: ${traffic.arrivals}\nDepartures: ${traffic.departures}`;
+        const markerElement = document.createElement('div');
+        markerElement.className = 'station-marker';
+        markerElement.style.width = `${markerSize}px`;
+        markerElement.style.height = `${markerSize}px`;
+        markerElement.style.backgroundColor = 'steelblue';
+        markerElement.style.border = '1px solid white';
+        markerElement.style.borderRadius = '50%';
+        markerElement.style.opacity = '0.6';
+        markerElement.title = `${station.name}\nArrivals: ${traffic.arrivals}\nDepartures: ${traffic.departures}`;
 
-			new mapboxgl.Marker(markerElement)
-				.setLngLat([station.long, station.lat])
-				.addTo(map);
-		});
-	}
+        new mapboxgl.Marker(markerElement)
+            .setLngLat([station.long, station.lat])
+            .addTo(map);
+    });
+}
+
 
 	// Initialize map and data
 	onMount(async () => {
