@@ -1,106 +1,205 @@
 <script>
-	import { spring } from 'svelte/motion';
+	import { onMount } from 'svelte';
+	import mapboxgl from 'mapbox-gl';
+	import * as d3 from 'd3';
+	import 'mapbox-gl/dist/mapbox-gl.css';
 
-	let count = $state(0);
+	mapboxgl.accessToken = 'pk.eyJ1Ijoibmlrb3Bhc3RvcmUiLCJhIjoiY20zc2lpbzdoMGdqczJxcTB3czUzcTIxaiJ9.OxA2W627iC-9vWBa1_WHsg'; // Replace with your Mapbox token
 
-	// svelte-ignore state_referenced_locally
-	const displayedCount = spring(count);
+	let map;
+	let stations = [];
+	let trips = [];
+	let timeFilter = -1; // Default filter: show all times
 
-	$effect(() => {
-		displayedCount.set(count);
-	});
-	let offset = $derived(modulo($displayedCount, 1));
+	const STATIONS_CSV = '/bluebikes-stations.csv'; // Ensure this file is in the static folder
+	const TRIPS_CSV = '/bluebikes-traffic-2024-03.csv';
+	const BIKE_LANES_GEOJSON = '/Existing_Bike_Network_2022.geojson';
 
-	function modulo(n, m) {
-		// handle negative numbers
-		return ((n % m) + m) % m;
+	async function loadData() {
+		// Load station data
+		stations = await d3.csv(STATIONS_CSV, (d) => ({
+			id: d.Number,
+			name: d.NAME,
+			lat: +d.Lat,
+			long: +d.Long,
+			totalDocks: +d['Total Docks'],
+		}));
+
+		console.log('Stations loaded:', stations);
+
+		// Load trip data
+		trips = await d3.csv(TRIPS_CSV, (d) => ({
+			startStationId: d.start_station_id,
+			endStationId: d.end_station_id,
+			startedAt: new Date(d.started_at),
+			endedAt: new Date(d.ended_at),
+		}));
+
+		console.log('Trips loaded:', trips);
 	}
+
+	function filterTripsByTime() {
+		if (timeFilter === -1) return trips;
+
+		const start = timeFilter - 60;
+		const end = timeFilter + 60;
+
+		return trips.filter((trip) => {
+			const startedMinutes = minutesSinceMidnight(trip.startedAt);
+			const endedMinutes = minutesSinceMidnight(trip.endedAt);
+			return (
+				(startedMinutes >= start && startedMinutes <= end) ||
+				(endedMinutes >= start && endedMinutes <= end)
+			);
+		});
+	}
+
+	function updateStationsOnMap() {
+		if (!map || !stations.length) return;
+
+		const filteredTrips = filterTripsByTime();
+
+		console.log('Filtered Trips:', filteredTrips);
+
+		// Clear existing markers
+		document.querySelectorAll('.station-marker').forEach((el) => el.remove());
+
+		// Calculate station traffic
+		const trafficMap = new Map();
+		filteredTrips.forEach((trip) => {
+			if (!trafficMap.has(trip.startStationId))
+				trafficMap.set(trip.startStationId, { arrivals: 0, departures: 0 });
+			if (!trafficMap.has(trip.endStationId))
+				trafficMap.set(trip.endStationId, { arrivals: 0, departures: 0 });
+
+			trafficMap.get(trip.startStationId).departures++;
+			trafficMap.get(trip.endStationId).arrivals++;
+		});
+
+		console.log('Traffic Map:', trafficMap);
+
+		// Add station markers dynamically
+		stations.forEach((station) => {
+			if (!station.lat || !station.long) {
+				console.warn(`Station ${station.name} has invalid coordinates:`, station);
+				return;
+			}
+
+			const traffic = trafficMap.get(station.id) || { arrivals: 0, departures: 0 };
+			const totalTraffic = traffic.arrivals + traffic.departures;
+
+			const markerElement = document.createElement('div');
+			markerElement.className = 'station-marker';
+			markerElement.style.width = `${Math.sqrt(totalTraffic) * 4}px`;
+			markerElement.style.height = `${Math.sqrt(totalTraffic) * 4}px`;
+			markerElement.style.backgroundColor = 'steelblue';
+			markerElement.style.border = '2px solid white';
+			markerElement.style.borderRadius = '50%';
+			markerElement.style.opacity = '0.7';
+
+			markerElement.title = `${station.name}\nArrivals: ${traffic.arrivals}\nDepartures: ${traffic.departures}`;
+
+			new mapboxgl.Marker(markerElement)
+				.setLngLat([station.long, station.lat])
+				.addTo(map);
+		});
+	}
+
+	function minutesSinceMidnight(date) {
+		return date.getHours() * 60 + date.getMinutes();
+	}
+
+	onMount(async () => {
+		await loadData();
+
+		// Initialize the map
+		map = new mapboxgl.Map({
+			container: 'map',
+			style: 'mapbox://styles/mapbox/streets-v11',
+			center: [-71.0589, 42.3601], // Boston coordinates
+			zoom: 12,
+		});
+
+		map.on('load', () => {
+			// Add bike lanes layer
+			map.addSource('bikeLanes', {
+				type: 'geojson',
+				data: BIKE_LANES_GEOJSON,
+			});
+
+			map.addLayer({
+				id: 'bikeLanes',
+				type: 'line',
+				source: 'bikeLanes',
+				layout: {},
+				paint: {
+					'line-color': '#28a745',
+					'line-width': 2,
+					'line-opacity': 0.6,
+				},
+			});
+
+			updateStationsOnMap();
+		});
+
+		// Trigger re-render on time filter change
+		$: updateStationsOnMap();
+	});
 </script>
 
-<div class="counter">
-	<button onclick={() => (count -= 1)} aria-label="Decrease the counter by one">
-		<svg aria-hidden="true" viewBox="0 0 1 1">
-			<path d="M0,0.5 L1,0.5" />
-		</svg>
-	</button>
-
-	<div class="counter-viewport">
-		<div class="counter-digits" style="transform: translate(0, {100 * offset}%)">
-			<strong class="hidden" aria-hidden="true">{Math.floor($displayedCount + 1)}</strong>
-			<strong>{Math.floor($displayedCount)}</strong>
-		</div>
-	</div>
-
-	<button onclick={() => (count += 1)} aria-label="Increase the counter by one">
-		<svg aria-hidden="true" viewBox="0 0 1 1">
-			<path d="M0,0.5 L1,0.5 M0.5,0 L0.5,1" />
-		</svg>
-	</button>
-</div>
-
 <style>
-	.counter {
-		display: flex;
-		border-top: 1px solid rgba(0, 0, 0, 0.1);
-		border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+	body {
+		font-family: Arial, sans-serif;
+		margin: 0;
+		padding: 0;
+	}
+
+	h1 {
+		text-align: center;
+		font-size: 2rem;
 		margin: 1rem 0;
 	}
 
-	.counter button {
-		width: 2em;
-		padding: 0;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		border: 0;
-		background-color: transparent;
-		touch-action: manipulation;
-		font-size: 2rem;
-	}
-
-	.counter button:hover {
-		background-color: var(--color-bg-1);
-	}
-
-	svg {
-		width: 25%;
-		height: 25%;
-	}
-
-	path {
-		vector-effect: non-scaling-stroke;
-		stroke-width: 2px;
-		stroke: #444;
-	}
-
-	.counter-viewport {
-		width: 8em;
-		height: 4em;
-		overflow: hidden;
-		text-align: center;
+	#map {
+		width: 100%;
+		height: 65vh;
 		position: relative;
 	}
 
-	.counter-viewport strong {
-		position: absolute;
+	.station-marker {
+		background-color: steelblue;
+		border: 2px solid white;
+		border-radius: 50%;
+		pointer-events: none;
+		opacity: 0.7;
+	}
+
+	.filter-bar {
 		display: flex;
-		width: 100%;
-		height: 100%;
-		font-weight: 400;
-		color: var(--color-theme-1);
-		font-size: 4rem;
-		align-items: center;
 		justify-content: center;
+		align-items: center;
+		margin: 1rem;
 	}
 
-	.counter-digits {
-		position: absolute;
-		width: 100%;
-		height: 100%;
-	}
-
-	.hidden {
-		top: -100%;
-		user-select: none;
+	.filter-bar time {
+		display: inline-block;
+		width: 100px;
+		text-align: center;
 	}
 </style>
+
+<h1>LaneWatchers</h1>
+
+<div id="map"></div>
+
+<div class="filter-bar">
+	<label>
+		Filter by time:
+		<input type="range" min="-1" max="1440" step="1" bind:value={timeFilter} />
+		<time>
+			{timeFilter === -1
+				? 'Any time'
+				: new Date(0, 0, 0, 0, timeFilter).toLocaleString('en', { timeStyle: 'short' })}
+		</time>
+	</label>
+</div>

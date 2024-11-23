@@ -3,183 +3,200 @@
 	import mapboxgl from 'mapbox-gl';
 	import * as d3 from 'd3';
 	import 'mapbox-gl/dist/mapbox-gl.css';
-  
-	mapboxgl.accessToken = 'pk.eyJ1Ijoibmlrb3Bhc3RvcmUiLCJhIjoiY20zc2lpbzdoMGdqczJxcTB3czUzcTIxaiJ9.OxA2W627iC-9vWBa1_WHsg'; // Replace with your Mapbox token
-  
+
+	mapboxgl.accessToken = 'pk.eyJ1Ijoibmlrb3Bhc3RvcmUiLCJhIjoiY20zc2lpbzdoMGdqczJxcTB3czUzcTIxaiJ9.OxA2W627iC-9vWBa1_WHsg';
+
 	let map;
 	let stations = [];
 	let trips = [];
-	let timeFilter = -1;
-	let mapViewChanged = 0;
-  
+	let filteredTrips = [];
+	let timeFilter = -1; // Default filter: show all times
+
 	const STATIONS_CSV = '/bluebikes-stations.csv';
 	const TRIPS_CSV = '/bluebikes-traffic-2024-03.csv';
 	const BIKE_LANES_GEOJSON = '/Existing_Bike_Network_2022.geojson';
-  
+
+	// Load data
 	async function loadData() {
-	  // Load station data
-	  stations = await d3.csv(STATIONS_CSV, (d) => ({
-		id: d.Number,
-		name: d.NAME,
-		lat: +d.Lat,
-		long: +d.Long,
-		totalDocks: +d['Total Docks'],
-	  }));
-  
-	  console.log('Stations:', stations);
-  
-	  // Load trip data
-	  trips = await d3.csv(TRIPS_CSV, (d) => ({
-		startStationId: d.start_station_id,
-		endStationId: d.end_station_id,
-		startedAt: new Date(d.started_at),
-		endedAt: new Date(d.ended_at),
-	  }));
-  
-	  console.log('Trips:', trips);
+		stations = await d3.csv(STATIONS_CSV, (d) => ({
+			id: d.Number,
+			name: d.NAME,
+			lat: +d.Lat,
+			long: +d.Long,
+			totalDocks: +d['Total Docks'],
+		}));
+
+		trips = await d3.csv(TRIPS_CSV, (d) => ({
+			startStationId: d.start_station_id,
+			endStationId: d.end_station_id,
+			startedAt: new Date(d.started_at),
+			endedAt: new Date(d.ended_at),
+		}));
+
+		console.log('Data loaded:', { stations, trips });
+		filterTripsByTime();
 	}
-  
-	function getCoords(station) {
-	  if (!map) return { cx: 0, cy: 0 };
-	  const point = map.project([station.long, station.lat]);
-	  return { cx: point.x, cy: point.y };
-	}
-  
-	$: filteredStations = stations.map((station) => {
-	  const arrivals = trips.filter(
-		(trip) =>
-		  trip.endStationId === station.id &&
-		  (timeFilter === -1 || Math.abs(minutesSinceMidnight(trip.startedAt) - timeFilter) <= 60)
-	  ).length;
-  
-	  const departures = trips.filter(
-		(trip) =>
-		  trip.startStationId === station.id &&
-		  (timeFilter === -1 || Math.abs(minutesSinceMidnight(trip.startedAt) - timeFilter) <= 60)
-	  ).length;
-  
-	  return {
-		...station,
-		arrivals,
-		departures,
-		totalTraffic: arrivals + departures,
-	  };
-	});
-  
+
+	// Utility function for minutes since midnight
 	function minutesSinceMidnight(date) {
-	  return date.getHours() * 60 + date.getMinutes();
+		return date.getHours() * 60 + date.getMinutes();
 	}
-  
-	$: radiusScale = d3
-	  .scaleSqrt()
-	  .domain([0, d3.max(filteredStations, (station) => station.totalTraffic)])
-	  .range([0, 20]);
-  
+
+	// Filter trips by time range
+	function filterTripsByTime() {
+		if (timeFilter === -1) {
+			filteredTrips = trips;
+		} else {
+			const start = timeFilter - 60;
+			const end = timeFilter + 60;
+
+			filteredTrips = trips.filter((trip) => {
+				const startedMinutes = minutesSinceMidnight(trip.startedAt);
+				const endedMinutes = minutesSinceMidnight(trip.endedAt);
+				return (
+					(startedMinutes >= start && startedMinutes <= end) ||
+					(endedMinutes >= start && endedMinutes <= end)
+				);
+			});
+		}
+		console.log('Filtered Trips:', filteredTrips);
+		updateStationsOnMap();
+	}
+
+	// Update station markers dynamically
+	function updateStationsOnMap() {
+		if (!map || !stations.length) return;
+
+		// Calculate traffic per station based on filtered trips
+		const trafficMap = new Map();
+		filteredTrips.forEach((trip) => {
+			if (!trafficMap.has(trip.startStationId))
+				trafficMap.set(trip.startStationId, { arrivals: 0, departures: 0 });
+			if (!trafficMap.has(trip.endStationId))
+				trafficMap.set(trip.endStationId, { arrivals: 0, departures: 0 });
+
+			trafficMap.get(trip.startStationId).departures++;
+			trafficMap.get(trip.endStationId).arrivals++;
+		});
+
+		// Clear existing markers
+		document.querySelectorAll('.station-marker').forEach((el) => el.remove());
+
+		// Add station markers
+		stations.forEach((station) => {
+			const traffic = trafficMap.get(station.id) || { arrivals: 0, departures: 0 };
+			const totalTraffic = traffic.arrivals + traffic.departures;
+
+			if (totalTraffic === 0) return; // Skip stations with no traffic
+
+			const markerSize = Math.max(2, Math.sqrt(totalTraffic) * 0.5); // Adjust marker size
+
+			const markerElement = document.createElement('div');
+			markerElement.className = 'station-marker';
+			markerElement.style.width = `${markerSize}px`;
+			markerElement.style.height = `${markerSize}px`;
+			markerElement.style.backgroundColor = 'steelblue';
+			markerElement.style.border = '1px solid white';
+			markerElement.style.borderRadius = '50%';
+			markerElement.style.opacity = '0.6';
+			markerElement.title = `${station.name}\nArrivals: ${traffic.arrivals}\nDepartures: ${traffic.departures}`;
+
+			new mapboxgl.Marker(markerElement)
+				.setLngLat([station.long, station.lat])
+				.addTo(map);
+		});
+	}
+
+	// Initialize map and data
 	onMount(async () => {
-	  await loadData();
-  
-	  map = new mapboxgl.Map({
-		container: 'map',
-		style: 'mapbox://styles/mapbox/streets-v11',
-		center: [-71.0589, 42.3601], // Boston coordinates
-		zoom: 12,
-	  });
-  
-	  map.on('load', () => {
-		// Add bike lanes
-		map.addSource('bikeLanes', {
-		  type: 'geojson',
-		  data: BIKE_LANES_GEOJSON,
+		await loadData();
+
+		map = new mapboxgl.Map({
+			container: 'map',
+			style: 'mapbox://styles/mapbox/streets-v11',
+			center: [-71.0589, 42.3601], // Boston
+			zoom: 12,
 		});
-  
-		map.addLayer({
-		  id: 'bikeLanes',
-		  type: 'line',
-		  source: 'bikeLanes',
-		  layout: {},
-		  paint: {
-			'line-color': '#28a745',
-			'line-width': 2,
-			'line-opacity': 0.6,
-		  },
+
+		map.on('load', () => {
+			// Add bike lanes layer
+			map.addSource('bikeLanes', {
+				type: 'geojson',
+				data: BIKE_LANES_GEOJSON,
+			});
+
+			map.addLayer({
+				id: 'bikeLanes',
+				type: 'line',
+				source: 'bikeLanes',
+				layout: {},
+				paint: {
+					'line-color': '#28a745',
+					'line-width': 2,
+					'line-opacity': 0.6,
+				},
+			});
+
+			updateStationsOnMap();
 		});
-  
-		map.on('move', () => {
-		  mapViewChanged++;
-		});
-	  });
+
+		$: filterTripsByTime(); // Update on filter change
 	});
-  </script>
-  
-  <style>
+</script>
+
+<style>
 	body {
-	  font-family: Arial, sans-serif;
-	  margin: 0;
-	  padding: 0;
+		font-family: Arial, sans-serif;
+		margin: 0;
+		padding: 0;
 	}
-  
+
 	h1 {
-	  text-align: center;
-	  font-size: 2rem;
-	  margin: 1rem 0;
+		text-align: center;
+		font-size: 2rem;
+		margin: 1rem 0;
 	}
-  
+
 	#map {
-	  width: 100%;
-	  height: 65vh;
-	  position: relative;
+		width: 100%;
+		height: 65vh;
+		position: relative;
 	}
-  
+
+	.station-marker {
+		background-color: steelblue;
+		border: 1px solid white;
+		border-radius: 50%;
+		pointer-events: none;
+		opacity: 0.6;
+	}
+
 	.filter-bar {
-	  display: flex;
-	  justify-content: center;
-	  margin-top: 1rem;
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		margin: 1rem;
 	}
-  
-	svg {
-	  position: absolute;
-	  top: 0;
-	  left: 0;
-	  pointer-events: none;
+
+	.filter-bar time {
+		display: inline-block;
+		width: 100px;
+		text-align: center;
 	}
-  
-	circle {
-	  fill: steelblue;
-	  stroke: white;
-	  stroke-width: 1;
-	  fill-opacity: 0.6;
-	  pointer-events: auto;
-	}
-  </style>
-  
-  <h1>LaneWatchers</h1>
-  
-  <div id="map">
-	<svg>
-	  {#key mapViewChanged}
-		{#each filteredStations as station}
-		  <circle
-			{...getCoords(station)}
-			r={radiusScale(station.totalTraffic)}
-		  >
-			<title>
-			  {station.name}: {station.totalTraffic} trips ({station.arrivals} arrivals, {station.departures} departures)
-			</title>
-		  </circle>
-		{/each}
-	  {/key}
-	</svg>
-  </div>
-  
-  <div class="filter-bar">
+</style>
+
+<h1>LaneWatchers</h1>
+
+<div id="map"></div>
+
+<div class="filter-bar">
 	<label>
-	  Filter by time:
-	  <input type="range" min="-1" max="1440" step="1" bind:value={timeFilter} />
-	  <time>
-		{timeFilter === -1
-		  ? 'Any time'
-		  : new Date(0, 0, 0, 0, timeFilter).toLocaleString('en', { timeStyle: 'short' })}
-	  </time>
+		Filter by time:
+		<input type="range" min="-1" max="1440" step="1" bind:value={timeFilter} />
+		<time>
+			{timeFilter === -1
+				? 'Any time'
+				: new Date(0, 0, 0, 0, timeFilter).toLocaleString('en', { timeStyle: 'short' })}
+		</time>
 	</label>
-  </div>
-  
+</div>
